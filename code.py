@@ -2,8 +2,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+from sklearn.cluster import KMeans
 
-# Paths to the datasets uploaded by the user
+# Paths to the datasets (update these paths according to your file locations)
 dataset_paths = {
     'agricultural_land': 'API_AG.LND.AGRI.ZS_DS2_en_csv_v2_6225048.csv',
     'freshwater_withdrawals': 'API_ER.H2O.FWTL.ZS_DS2_en_csv_v2_6229258.csv',
@@ -15,133 +18,138 @@ dataset_paths = {
     'urban_population': 'API_SP.URB.TOTL.IN.ZS_DS2_en_csv_v2_6227277.csv'
 }
 
-# Initialize a dictionary to hold the dataframes
+# Loading and cleaning data
 dataframes = {}
-
-# Load the datasets into pandas dataframes
 for key, path in dataset_paths.items():
-    dataframes[key] = pd.read_csv(path, skiprows=4)
+    df = pd.read_csv(path, skiprows=4)
+    df = df[['Country Name'] + [str(year) for year in range(2000, 2021)]]
+    df = df.dropna()
+    dataframes[key] = df
 
-# Function to preprocess and perform EDA on each dataframe
-def preprocess_and_eda(df):
-    # Dropping columns with no relevance to analysis
-    df.drop(columns=['Indicator Code', 'Country Code', 'Unnamed: 67'], inplace=True, errors='ignore')
-    
-    # Dropping rows where all data entries are NaN (if any)
-    df.dropna(axis=0, how='all', subset=df.columns[4:], inplace=True)
-    
-    # EDA can include more steps as needed, such as:
-    # - Descriptive statistics
-    # - Checking for and imputing missing values
-    # - Identifying outliers
-    # - Normalizing or scaling data
-    # - Visualizing distributions of variables
-    # For now, we'll calculate and return the descriptive statistics.
-    eda_results = df.describe(include='all').T
-    return eda_results
-
-# Perform EDA for each indicator
-eda_results = {}
+# Merging datasets
+combined_df = pd.DataFrame()
 for key, df in dataframes.items():
-    eda_results[key] = preprocess_and_eda(df)
-
-print(eda_results['agricultural_land'].head())  # Display an example of EDA results for one indicator
-
-# Function to find the most recent common year with data for most of the 222 countries for each indicator
-def find_recent_common_year_for_countries(dataframes_dict, common_countries):
-    recent_common_year = None
-    for year in range(2022, 1959, -1):  # From 2022 backwards to 1960
-        year_str = str(year)
-        year_data_complete = True
-        for df in dataframes_dict.values():
-            # Check if the year column exists and if data is available for most of the common countries
-            if year_str not in df.columns or df[df['Country Name'].isin(common_countries)][year_str].isna().sum() > len(common_countries) * 0.1:
-                year_data_complete = False
-                break
-        if year_data_complete:
-            recent_common_year = year_str
-            break
-    return recent_common_year
-
-# Approach 3: Focus on a subset of countries with complete data for the most recent year across all indicators
-# We will find the most recent year for each indicator where data is available for all countries
-# and then identify the common countries with complete data for all indicators in those years.
-
-# Function to find the most recent year with complete data for each indicator
-def find_most_recent_year(dataframe):
-    # Getting a list of years for which the dataframe has complete data
-    years_with_complete_data = dataframe.columns[~dataframe.isnull().any()].tolist()[4:]
-    return max(years_with_complete_data) if years_with_complete_data else None
-
-# Find the most recent year with complete data for each indicator
-recent_years = {key: find_most_recent_year(df) for key, df in dataframes.items()}
-
-# Filter each dataframe to include only data from the most recent year identified
-filtered_dataframes = {}
-for key, year in recent_years.items():
-    if year:
-        filtered_dataframes[key] = dataframes[key][['Country Name', year]]
-
-# Identify common countries with complete data across all indicators
-common_countries = None
-for df in filtered_dataframes.values():
-    countries_with_data = set(df['Country Name'].dropna())
-    if common_countries is None:
-        common_countries = countries_with_data
+    df_melted = df.melt(id_vars=['Country Name'], var_name='Year', value_name=key)
+    if combined_df.empty:
+        combined_df = df_melted
     else:
-        common_countries = common_countries.intersection(countries_with_data)
+        combined_df = combined_df.merge(df_melted, on=['Country Name', 'Year'])
 
-# Filter each dataframe to include only the common countries
-for key in filtered_dataframes:
-    filtered_dataframes[key] = filtered_dataframes[key][filtered_dataframes[key]['Country Name'].isin(common_countries)]
+combined_df['Year'] = pd.to_numeric(combined_df['Year'])
 
-# Merge the filtered dataframes for correlation analysis
-combined_filtered_data = pd.DataFrame()
-for key, df in filtered_dataframes.items():
-    df = df.rename(columns={df.columns[1]: key})
-    if combined_filtered_data.empty:
-        combined_filtered_data = df
-    else:
-        combined_filtered_data = combined_filtered_data.merge(df, on='Country Name', how='inner')
+# Selecting a specific year for correlation analysis, e.g., 2020
+year_for_analysis = 2020
+df_for_correlation = combined_df[combined_df['Year'] == year_for_analysis].drop('Year', axis=1)
+df_for_correlation.reset_index(drop=True, inplace=True)
 
-# Calculate the correlation matrix for the combined filtered dataframe
-correlation_matrix = combined_filtered_data.set_index('Country Name').corr()
+# Calculating the correlation matrix
+correlation_matrix = df_for_correlation.corr()
 
-correlation_matrix, recent_years, len(common_countries)  # Display the correlation matrix, the years used, and the number of common countries
-
-# Find the most recent common year with data for most countries
-recent_common_year_for_countries = find_recent_common_year_for_countries(dataframes, common_countries)
-
-# If a common year is found, extract data for that year from each indicator
-if recent_common_year_for_countries:
-    # Initialize a new dataframe to hold all the data for the common year
-    combined_common_year_data = pd.DataFrame()
-
-    # Extract data for the common year from each indicator
-    for key, df in dataframes.items():
-        temp_df = df[['Country Name', recent_common_year_for_countries]].copy()
-        temp_df.rename(columns={recent_common_year_for_countries: key}, inplace=True)
-        if combined_common_year_data.empty:
-            combined_common_year_data = temp_df
-        else:
-            combined_common_year_data = combined_common_year_data.merge(temp_df, on='Country Name', how='inner')
-
-    # Calculate the correlation matrix for the combined data
-    correlation_matrix_common_year = combined_common_year_data.set_index('Country Name').corr()
-else:
-    correlation_matrix_common_year = "No recent common year with sufficient data found."
-
-print(correlation_matrix_common_year) 
-print(recent_common_year_for_countries)  # Display the correlation matrix and the common year used
-
-# Creating the heatmap with tilted x-axis labels for better readability
+# Creating a heatmap of the correlation matrix
 plt.figure(figsize=(10, 8))
-sns.heatmap(correlation_matrix_common_year, annot=True, fmt=".2f", cmap='coolwarm')
-# Adding title and labels
-plt.title('Correlation Matrix Heatmap for the Year 2020')
-plt.xlabel('Indicators')
-plt.ylabel('Indicators')
-# Tilting the x-axis labels for better readability
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm')
+plt.title('Correlation Matrix Heatmap for Year ' + str(year_for_analysis))
 plt.xticks(rotation=45, ha='right')
-# Show the heatmap
 plt.show()
+
+# Clustering
+clustering_data = df_for_correlation[['Country Name', 'gdp_per_capita', 'forest_area']].dropna()
+features_for_scaling = clustering_data[['gdp_per_capita', 'forest_area']]
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features_for_scaling)
+
+kmeans = KMeans(n_clusters=3, random_state=0)
+cluster_labels = kmeans.fit_predict(features_scaled)
+clustering_data['Cluster'] = cluster_labels
+
+# Transform the centroids back to the original scale
+centers = scaler.inverse_transform(kmeans.cluster_centers_)
+
+print(centers)
+
+# Print the centroids
+print("Centroids (Cluster 0, 1, 2):")
+for i, center in enumerate(centers):
+    print(f"Cluster {i}: GDP per capita = {center[0]:.2f}, Forest Area = {center[1]:.2f}")
+
+# Plotting the clustering results
+plt.figure(figsize=(12, 8))
+sns.scatterplot(x='gdp_per_capita', y='forest_area', hue='Cluster', data=clustering_data, palette='Set1', s=100)
+plt.title('K-Means Clustering on GDP per Capita and Forest Area')
+plt.xlabel('GDP per Capita (USD)')
+plt.ylabel('Forest Area (% of land area)')
+
+# Plotting cluster centers (centroids)
+# Transform the centroids back to the original scale
+centers = scaler.inverse_transform(kmeans.cluster_centers_)
+plt.scatter(centers[:, 0], centers[:, 1], c='black', s=200, alpha=0.75, marker='X', label='Centroids')
+
+plt.legend(title='Cluster', loc='upper right')
+plt.show()
+
+# Silhouette Scores
+def calculate_silhouette_scores(data, max_clusters):
+    silhouette_scores = {}
+    for n_clusters in range(2, max_clusters + 1):
+        kmeans = KMeans(n_clusters=n_clusters, random_state=0)
+        labels = kmeans.fit_predict(data)
+        score = silhouette_score(data, labels)
+        silhouette_scores[n_clusters] = score
+    return silhouette_scores
+
+silhouette_scores = calculate_silhouette_scores(features_scaled, 10)
+
+plt.figure(figsize=(10, 6))
+bars = plt.bar(range(2, 11), silhouette_scores.values())
+plt.xlabel('Number of Clusters')
+plt.ylabel('Silhouette Score')
+plt.title('Silhouette Scores for Different Numbers of Clusters')
+for bar in bars:
+    yval = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2, yval + 0.001, round(yval, 3), ha='center', va='bottom')
+plt.show()
+
+print(clustering_data)
+
+from scipy.spatial.distance import euclidean
+
+# Function to calculate distances to centroid in original feature space
+def calculate_original_distances_to_centroid(cluster_data, centroid):
+    cluster_data['Distance to Centroid (Original)'] = cluster_data.apply(
+        lambda row: euclidean(row[['gdp_per_capita', 'forest_area']], centroid), axis=1)
+    return cluster_data.sort_values(by='Distance to Centroid (Original)')
+
+# Apply the function to each cluster and store results
+sorted_original_distances = {}
+for i in range(3):  # Assuming there are 3 clusters
+    cluster_data = clustering_data[clustering_data['Cluster'] == i]
+    # Use the original scale centroids
+    original_centroid = centers[i]
+    sorted_original_distances[i] = calculate_original_distances_to_centroid(cluster_data, original_centroid)
+
+# Example: Print sorted distances for Cluster 0 in original feature space
+print(sorted_original_distances[0][['Country Name', 'Distance to Centroid (Original)']])
+print(sorted_original_distances[1][['Country Name', 'Distance to Centroid (Original)']])
+print(sorted_original_distances[2][['Country Name', 'Distance to Centroid (Original)']])
+"""
+# Step 1: Create DataFrame with scaled features
+clustering_data_scaled = pd.DataFrame(features_scaled, columns=['gdp_per_capita_scaled', 'forest_area_scaled'])
+clustering_data_scaled['Country Name'] = clustering_data['Country Name']
+clustering_data_scaled['Cluster'] = clustering_data['Cluster']
+
+# Step 2: Distance Calculation Function
+def calculate_distances_to_centroid(cluster_data, centroid):
+    cluster_data['Distance to Centroid'] = cluster_data.apply(lambda row: euclidean(row[['gdp_per_capita_scaled', 'forest_area_scaled']], centroid), axis=1)
+    return cluster_data.sort_values(by='Distance to Centroid')
+
+# Step 3: Apply function to each cluster and store results
+sorted_distances = {}
+for i in range(3):  # Assuming there are 3 clusters
+    cluster_data = clustering_data_scaled[clustering_data_scaled['Cluster'] == i]
+    sorted_distances[i] = calculate_distances_to_centroid(cluster_data, centers[i])
+
+# Example: Print sorted distances for Cluster 0, 1, and 2
+print(sorted_distances[0][['Country Name', 'Distance to Centroid']])
+print(sorted_distances[1][['Country Name', 'Distance to Centroid']])
+print(sorted_distances[2][['Country Name', 'Distance to Centroid']])
+"""
