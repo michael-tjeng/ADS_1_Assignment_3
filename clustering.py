@@ -5,6 +5,7 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score
 from sklearn.cluster import KMeans
+from scipy.spatial.distance import euclidean
 
 # Paths to the datasets (update these paths according to your file locations)
 dataset_paths = {
@@ -22,7 +23,7 @@ dataset_paths = {
 dataframes = {}
 for key, path in dataset_paths.items():
     df = pd.read_csv(path, skiprows=4)
-    df = df[['Country Name'] + [str(year) for year in range(2000, 2021)]]
+    df = df[['Country Name'] + [str(year) for year in range(1990, 2021)]]
     df = df.dropna()
     dataframes[key] = df
 
@@ -109,9 +110,7 @@ for bar in bars:
     plt.text(bar.get_x() + bar.get_width()/2, yval + 0.001, round(yval, 3), ha='center', va='bottom')
 plt.show()
 
-print(clustering_data)
-
-from scipy.spatial.distance import euclidean
+print(clustering_data, '\n')
 
 # Function to calculate distances to centroid in original feature space
 def calculate_original_distances_to_centroid(cluster_data, centroid):
@@ -128,28 +127,6 @@ for i in range(3):  # Assuming there are 3 clusters
     sorted_original_distances[i] = calculate_original_distances_to_centroid(cluster_data, original_centroid)
 
 # Example: Print sorted distances for Cluster 0 in original feature space
-print(sorted_original_distances[0][['Country Name', 'Distance to Centroid (Original)']])
-print(sorted_original_distances[1][['Country Name', 'Distance to Centroid (Original)']])
-print(sorted_original_distances[2][['Country Name', 'Distance to Centroid (Original)']])
-"""
-# Step 1: Create DataFrame with scaled features
-clustering_data_scaled = pd.DataFrame(features_scaled, columns=['gdp_per_capita_scaled', 'forest_area_scaled'])
-clustering_data_scaled['Country Name'] = clustering_data['Country Name']
-clustering_data_scaled['Cluster'] = clustering_data['Cluster']
-
-# Step 2: Distance Calculation Function
-def calculate_distances_to_centroid(cluster_data, centroid):
-    cluster_data['Distance to Centroid'] = cluster_data.apply(lambda row: euclidean(row[['gdp_per_capita_scaled', 'forest_area_scaled']], centroid), axis=1)
-    return cluster_data.sort_values(by='Distance to Centroid')
-
-# Step 3: Apply function to each cluster and store results
-sorted_distances = {}
-for i in range(3):  # Assuming there are 3 clusters
-    cluster_data = clustering_data_scaled[clustering_data_scaled['Cluster'] == i]
-    sorted_distances[i] = calculate_distances_to_centroid(cluster_data, centers[i])
-
-# Example: Print sorted distances for Cluster 0, 1, and 2
-print(sorted_distances[0][['Country Name', 'Distance to Centroid']])
-print(sorted_distances[1][['Country Name', 'Distance to Centroid']])
-print(sorted_distances[2][['Country Name', 'Distance to Centroid']])
-"""
+print(sorted_original_distances[0][['Country Name', 'Distance to Centroid (Original)']].head(), '\n')
+print(sorted_original_distances[1][['Country Name', 'Distance to Centroid (Original)']].head(), '\n')
+print(sorted_original_distances[2][['Country Name', 'Distance to Centroid (Original)']].head(), '\n')
